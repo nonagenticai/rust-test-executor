@@ -7,4 +7,4 @@ publish = false
 
 [dependencies]
 # 1.6.0 is affected by RUSTSEC-2021-0003; the image test expects audit/deny to report it.
-smallvec = "=1.6.0"
+smallvec = "=1.6.1"
