@@ -1,0 +1,10 @@
+[package]
+name = "fixture"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+# 1.6.0 is affected by RUSTSEC-2021-0003; the image test expects audit/deny to report it.
+smallvec = "=1.6.0"

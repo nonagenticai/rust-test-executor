@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+.DS_Store
+node_modules/
+__pycache__/
+logs/*.log
+coverage/
+01_recent_push_failure.txt

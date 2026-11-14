@@ -1,0 +1,47 @@
+name: CI
+
+# The public pipeline: nonagenticai/ci-workflows, GitHub-hosted runners, no repository secrets.
+# It scans the tree (secret + private-infrastructure), installs from the committed lockfile, runs
+# eslint and the jest suite, then builds this repo's Dockerfile, smokes the image against /health
+# and publishes it to ghcr.io/nonagenticai/rust-test-executor from main.
+#
+# The image is ONE artefact: the rust toolchain, the offline crate cache and the service are all
+# built from this repository's Dockerfile (it used to be a private base image plus a digest pin).
+#
+# There is no deploy job. This service is retired from the estate's cluster; the repository is
+# published so its tests, toolchain plumbing and job contract stay readable and reproducible.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: ${{ !github.event.repository.private }}
+    uses: nonagenticai/ci-workflows/.github/workflows/node-service.yml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image_name: rust-test-executor
+      # The image build is heavy (rust toolchain + the baked crate cache), so give it headroom:
+      # a cancelled build reports as *pending*, not red.
+      build_timeout_minutes: 90
+      build_smoke: |
+        set -euo pipefail
+        docker run -d --name smoke-rust-executor -p 18089:8089 "$IMAGE_REF"
+        ok=0
+        for i in $(seq 1 30); do
+          if curl -sf http://127.0.0.1:18089/health >/dev/null 2>&1; then
+            echo "health ok (attempt $i)"; ok=1; break
+          fi
+          sleep 1
+        done
+        docker logs smoke-rust-executor || true
+        docker rm -f smoke-rust-executor || true
+        [ "$ok" -eq 1 ]

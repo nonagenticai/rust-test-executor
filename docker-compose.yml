@@ -1,0 +1,25 @@
+services:
+  rust-test-executor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rust-test-executor
+    ports:
+      - "0.0.0.0:8089:8089"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      PORT: 8089
+      TEST_MODE: "true"
+    networks:
+      - workflow-system-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8089/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  workflow-system-network:
+    driver: bridge

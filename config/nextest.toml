@@ -1,0 +1,6 @@
+# Platform nextest profile for rust-repo-run, loaded with --tool-config-file so it
+# sits UNDER the repo's own .config/nextest.toml: the repo's settings (retries,
+# filters, timeouts) win. It exists only so rust-repo-run can append
+# [profile.rte.junit] with an absolute path in the run dir, so the JUnit location
+# does not depend on the repo's [store] dir.
+[profile.rte]

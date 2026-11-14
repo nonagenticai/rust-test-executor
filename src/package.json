@@ -1,0 +1,23 @@
+{
+  "name": "rust-test-executor",
+  "version": "1.0.0",
+  "description": "Remote Rust test execution service — compiles, tests, lints, audits, and coverage-reports Rust code via HTTP",
+  "main": "rust_test_service.js",
+  "scripts": {
+    "start": "node rust_test_service.js",
+    "test": "jest --coverage --verbose --rootDir=.."
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.11.2",
+    "tar": "^7.5.22"
+  },
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "supertest": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "Apache-2.0"
+}
