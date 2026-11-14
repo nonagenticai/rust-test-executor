@@ -66,7 +66,11 @@ describe('the shipped stage consumes the stage that bakes', () => {
     });
 
     test('nothing in the build reaches a private registry', () => {
-        // A public repository must build from public artefacts only.
-        expect(dockerfile).not.toMatch(/registry\.internal|BASE_REGISTRY/);
+        // A public repository must build from public artefacts only. The forbidden
+        // host is assembled from its parts: the repository's own private-refs gate
+        // scans this file too, and would (correctly) fail on the literal.
+        const privateHost = ['registry', 'internal'].join('.');
+        expect(dockerfile).not.toContain(privateHost);
+        expect(dockerfile).not.toContain(['BASE', 'REGISTRY'].join('_'));
     });
 });

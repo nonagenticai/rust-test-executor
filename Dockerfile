@@ -102,7 +102,7 @@ WORKDIR /app
 COPY src/package.json src/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY src/rust_test_service.js src/rust_repo_run.js ./
+COPY src/rust_test_service.js src/rust_repo_run.js src/common.js ./
 # Job entrypoint: one container per whole-repo run (see README, "Job contract").
 RUN ln -s /app/rust_repo_run.js /usr/local/bin/rust-repo-run
 
