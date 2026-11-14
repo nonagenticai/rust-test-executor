@@ -16,7 +16,7 @@
     "eslint": "^10.10.0",
     "fast-xml-parser": "^5.11.2",
     "jest": "^30.3.0",
-    "supertest": "^7.1.0",
+    "supertest": "^7.3.2",
     "tar": "^7.5.22"
   },
   "engines": {
