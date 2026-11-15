@@ -5,7 +5,7 @@
   "main": "rust_test_service.js",
   "scripts": {
     "start": "node rust_test_service.js",
-    "test": "jest --coverage --verbose --rootDir=.."
+    "test": "jest --config ../jest.config.cjs --coverage --verbose"
   },
   "dependencies": {
     "express": "^5.3.0",
