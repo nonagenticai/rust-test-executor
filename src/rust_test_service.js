@@ -21,6 +21,7 @@ const {
     installGracefulShutdown,
 } = require('./common');
 const { exec } = require('child_process');
+const { rateLimit } = require('express-rate-limit');
 const fs = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
@@ -30,6 +31,32 @@ const PORT = process.env.PORT || process.env.RUST_TEST_PORT || 8089;
 const EXECUTION_TIMEOUT = parseInt(process.env.EXECUTION_TIMEOUT || '300') * 1000; // 5 minutes for Rust builds
 const TEST_WORKSPACE = process.env.TEST_WORKSPACE || '/app/test_workspace';
 const REPORTS_DIR = process.env.REPORTS_DIR || '/app/reports';
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+// /execute scaffolds, writes, checks, tests and lints a Cargo project on disk;
+// /validate runs `cargo init` and `cargo check`. Each request is seconds to
+// minutes of CPU and scratch-disk churn, and CodeQL js/missing-rate-limiting
+// raised both routes. This is an in-process counter keyed on the caller's
+// address: the orchestrator is the only caller (tenantGuard), so there is one
+// meaningful bucket, and an external attacker cannot bypass it by rotating
+// addresses. Defaults: 60 requests per 60 s, overridable with RATE_LIMIT_MAX /
+// RATE_LIMIT_WINDOW_MS. Invalid overrides fall back to the default rather than
+// disabling the limit.
+function positiveIntFromEnv(name, fallback) {
+    const parsed = Number.parseInt(process.env[name], 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const RATE_LIMIT_MAX = positiveIntFromEnv('RATE_LIMIT_MAX', 60);
+const RATE_LIMIT_WINDOW_MS = positiveIntFromEnv('RATE_LIMIT_WINDOW_MS', 60 * 1000);
+
+const expensiveRouteLimiter = rateLimit({
+    windowMs: RATE_LIMIT_WINDOW_MS,
+    limit: RATE_LIMIT_MAX,
+    standardHeaders: true, // RateLimit-Limit / -Remaining / -Reset on responses
+    legacyHeaders: false,
+    message: { error: 'Too many requests', detail: 'This executor is rate-limited.' },
+});
 
 // Initialize Express app with shared setup + orchestrator-only tenant guard
 const app = setupExpress({ jsonLimit: '50mb' });
@@ -223,6 +250,77 @@ function parseTestOutput(output) {
     return results;
 }
 
+// The ECMAScript `\s` set (WhiteSpace + LineTerminator), one code unit at a
+// time. Used by parseClippyLocation() below, which replaced a regular
+// expression CodeQL flagged as js/polynomial-redos.
+const WHITESPACE_CHARS = new Set([
+    ' ', '\t', '\n', '\v', '\f', '\r', '\u00a0', '\u1680', '\u2000', '\u2001',
+    '\u2002', '\u2003', '\u2004', '\u2005', '\u2006', '\u2007', '\u2008', '\u2009',
+    '\u200a', '\u2028', '\u2029', '\u202f', '\u205f', '\u3000', '\ufeff',
+]);
+
+function isAsciiDigit(ch) {
+    return ch >= '0' && ch <= '9';
+}
+
+/**
+ * Linear-time equivalent of /-->\s*([^:]+):(\d+):(\d+)/, the clippy
+ * source-location line.
+ *
+ * That regex was js/polynomial-redos: on a string starting with '-->' followed
+ * by many spaces and no colon, `\s*` and `[^:]+` share every split point of the
+ * run, so the engine retries the suffix from each of them. This scans each
+ * candidate arrow once, left to right. The greedy groups' behaviour is
+ * preserved: the name is the first non-colon run after the arrow (with the last
+ * whitespace character pulled into it when that run starts with a colon), and
+ * the two numbers are the digit runs immediately before and after the next
+ * colon. Returns { file, line, column } or null.
+ */
+function parseClippyLocation(line) {
+    let searchFrom = 0;
+    for (;;) {
+        const arrow = line.indexOf('-->', searchFrom);
+        if (arrow === -1) return null;
+        const parsed = scanClippyLocation(line, arrow + 3);
+        if (parsed) return parsed;
+        searchFrom = arrow + 3;
+    }
+}
+
+function scanClippyLocation(line, index) {
+    let at = index;
+    while (at < line.length && WHITESPACE_CHARS.has(line[at])) at += 1;
+
+    // `[^:]+` needs at least one character. If the first non-whitespace is the
+    // colon, the engine backs one whitespace character into the capture group.
+    let nameStart = at;
+    if (nameStart >= line.length) return null;
+    if (line[nameStart] === ':') {
+        if (nameStart === index) return null;
+        nameStart -= 1;
+    }
+    const colon = line.indexOf(':', nameStart);
+    if (colon === -1) return null;
+    const file = line.slice(nameStart, colon);
+
+    let cursor = colon + 1;
+    const lineNumberStart = cursor;
+    while (cursor < line.length && isAsciiDigit(line[cursor])) cursor += 1;
+    if (cursor === lineNumberStart) return null;
+    // `\d+` is greedy and must be followed by ':'. No split of the digit run
+    // can help: a split leaves a digit where the colon is required.
+    if (line[cursor] !== ':') return null;
+    const lineNumber = Number.parseInt(line.slice(lineNumberStart, cursor), 10);
+
+    cursor += 1;
+    const columnStart = cursor;
+    while (cursor < line.length && isAsciiDigit(line[cursor])) cursor += 1;
+    if (cursor === columnStart) return null;
+    const columnNumber = Number.parseInt(line.slice(columnStart, cursor), 10);
+
+    return { file, line: lineNumber, column: columnNumber };
+}
+
 /**
  * Parse clippy output
  */
@@ -252,11 +350,11 @@ function parseClippyOutput(output) {
         
         // Match file location
         if (currentIssue && line.includes('-->')) {
-            const locationMatch = line.match(/-->\s*([^:]+):(\d+):(\d+)/);
-            if (locationMatch) {
-                currentIssue.file = locationMatch[1];
-                currentIssue.line = parseInt(locationMatch[2]);
-                currentIssue.column = parseInt(locationMatch[3]);
+            const location = parseClippyLocation(line);
+            if (location) {
+                currentIssue.file = location.file;
+                currentIssue.line = location.line;
+                currentIssue.column = location.column;
             }
         }
     }
@@ -386,7 +484,7 @@ app.get('/health', (req, res) => {
 /**
  * Execute Rust tests
  */
-app.post('/execute', async (req, res) => {
+app.post('/execute', expensiveRouteLimiter, async (req, res) => {
     const executionId = crypto.randomUUID();
     const startTime = Date.now();
     
@@ -807,7 +905,7 @@ app.get('/frameworks', (req, res) => {
 /**
  * Validate Rust code syntax
  */
-app.post('/validate', async (req, res) => {
+app.post('/validate', expensiveRouteLimiter, async (req, res) => {
     const validationId = crypto.randomUUID();
     
     try {
@@ -937,6 +1035,7 @@ module.exports = {
     executeCommand,
     parseTestOutput,
     parseClippyOutput,
+    parseClippyLocation,
     parseCoverageOutput,
     parseAuditOutput,
     RUST_TOOLS,
