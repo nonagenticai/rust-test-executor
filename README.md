@@ -219,4 +219,4 @@ only licence that applies, and no licence server is involved.
 
 ## License
 
-Apache-2.0 — see [`LICENSE`](LICENSE).
+Apache-2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
