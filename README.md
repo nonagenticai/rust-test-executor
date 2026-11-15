@@ -188,6 +188,8 @@ Returns supported test frameworks (`cargo`, `rusttest`) with capabilities metada
 | `EXECUTION_TIMEOUT` | `300` (seconds) | Max time per command before SIGTERM |
 | `TEST_WORKSPACE` | `/app/test_workspace` | Directory for temporary Cargo projects |
 | `REPORTS_DIR` | `/app/reports` | Directory for report output |
+| `RATE_LIMIT_MAX` | `60` | Requests per client address per window across `/execute` and `/validate` before the service returns `429`. |
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window in milliseconds. |
 
 ## Dependencies
 

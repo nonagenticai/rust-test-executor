@@ -19,16 +19,25 @@ const express = require('express');
 const TENANT_HEADER = 'x-tenant-id';
 const DEFAULT_EXEMPT = ['/health', '/healthz', '/ready', '/'];
 
+// console.log/error/warn interpret their FIRST argument as a util.format
+// format string when it contains `%` directives. `msg` is caller-controlled
+// (it routinely interpolates request- and file-derived values), so building the
+// first argument with a template literal made the message a format string: a
+// value containing `%s`/`%j` would consume the metadata argument, and `%`-heavy
+// input was flagged by CodeQL as js/tainted-format-string. Keep the format
+// string constant and pass every dynamic value as an argument. util.format
+// appends unused arguments after the formatted prefix, so the rendered line is
+// byte-identical to the old template-literal form.
+function writeLog(sink, level, msg, meta) {
+  sink(`[${level}] %s - %s %s`, new Date().toISOString(), msg, JSON.stringify(meta, null, 2));
+}
+
 function createLogger() {
   return {
-    info: (msg, meta = {}) =>
-      console.log(`[INFO] ${new Date().toISOString()} - ${msg}`, JSON.stringify(meta, null, 2)),
-    error: (msg, meta = {}) =>
-      console.error(`[ERROR] ${new Date().toISOString()} - ${msg}`, JSON.stringify(meta, null, 2)),
-    warn: (msg, meta = {}) =>
-      console.warn(`[WARN] ${new Date().toISOString()} - ${msg}`, JSON.stringify(meta, null, 2)),
-    debug: (msg, meta = {}) =>
-      console.log(`[DEBUG] ${new Date().toISOString()} - ${msg}`, JSON.stringify(meta, null, 2)),
+    info: (msg, meta = {}) => writeLog(console.log, 'INFO', msg, meta),
+    error: (msg, meta = {}) => writeLog(console.error, 'ERROR', msg, meta),
+    warn: (msg, meta = {}) => writeLog(console.warn, 'WARN', msg, meta),
+    debug: (msg, meta = {}) => writeLog(console.log, 'DEBUG', msg, meta),
   };
 }
 
